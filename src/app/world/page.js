@@ -5,9 +5,10 @@ import * as PIXI from 'pixi.js'
 
 export default function Home() {
     const pixiContainer = useRef(null)
-    const [planets, setPlanets] = useState([])
+    const appRef = useRef(null) // To store the PIXI.Application instance
     const [exoplanets, setExoplanets] = useState([])
 
+    // Fetch exoplanets based on visible grid area (viewport)
     const fetchExoplanets = async (x1, y1, x2, y2) => {
         try {
             const response = await fetch('/api/exoplanets', {
@@ -15,7 +16,7 @@ export default function Home() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ x1, y1, x2, y2 }),
+                body: JSON.stringify({ x1, y1, x2, y2 }), // Send the visible grid area to the server
             })
             const data = await response.json()
             setExoplanets(data)
@@ -25,70 +26,7 @@ export default function Home() {
     }
 
     useEffect(() => {
-        // Fetch planets data
-        const fetchPlanets = async () => {
-            const planetsData = [
-                {
-                    name: 'Mercury',
-                    distance: 57900000,
-                    diameter: 4879,
-                    description: 'The smallest planet, closest to the Sun.',
-                },
-                {
-                    name: 'Venus',
-                    distance: 108200000,
-                    diameter: 12104,
-                    description:
-                        'Second planet from the Sun with a thick atmosphere.',
-                },
-                {
-                    name: 'Earth',
-                    distance: 149600000,
-                    diameter: 12742,
-                    description: 'The only planet known to support life.',
-                },
-                {
-                    name: 'Mars',
-                    distance: 227900000,
-                    diameter: 6779,
-                    description: 'Known as the red planet.',
-                },
-                {
-                    name: 'Jupiter',
-                    distance: 778500000,
-                    diameter: 139820,
-                    description: 'The largest planet in our solar system.',
-                },
-                {
-                    name: 'Saturn',
-                    distance: 1434000000,
-                    diameter: 116460,
-                    description: 'Famous for its rings.',
-                },
-                {
-                    name: 'Uranus',
-                    distance: 2871000000,
-                    diameter: 50724,
-                    description: 'An ice giant with a unique tilt.',
-                },
-                {
-                    name: 'Neptune',
-                    distance: 4495000000,
-                    diameter: 49244,
-                    description: 'The farthest planet from the Sun.',
-                },
-            ]
-
-            setPlanets(planetsData)
-        }
-
-        fetchPlanets()
-    }, [])
-
-    useEffect(() => {
-        if (planets.length === 0) return
-
-        // Initialize PixiJS app to fit entire window
+        // Initialize PixiJS app to fit the entire window
         const app = new PIXI.Application({
             resizeTo: window,
             backgroundColor: 0x000000,
@@ -96,88 +34,40 @@ export default function Home() {
             autoDensity: true,
         })
 
+        // Save the application instance in the ref
+        appRef.current = app
         pixiContainer.current.appendChild(app.view)
 
-        // Create a container for all interactive elements (planets, etc.)
+        // Create a container for all interactive elements (exoplanets)
         const container = new PIXI.Container()
         app.stage.addChild(container)
 
-        // Center the container in the viewport
+        // Center the container to start at (0,0), representing Earth’s position
         container.position.set(app.renderer.width / 2, app.renderer.height / 2)
 
-        // Enable interactivity with the entire PixiJS canvas (global panning)
-        app.stage.interactive = true
-        app.stage.hitArea = app.screen
-        app.stage.cursor = 'grab'
-
-        // Variables for panning
+        // Variables for panning and zooming
         let isDragging = false
         let dragStartX = 0
         let dragStartY = 0
+        let zoom = 10 // Start zoomed in (set to 5 for a 50x50 visible area)
 
-        // Variables for scaling
-        let zoom = 1
-
-        // Calculate planet sizes relative to the largest (Jupiter)
-        const maxDiameter = Math.max(...planets.map((p) => p.diameter))
-        const baseSize = 100
-        const scaleFactor = baseSize / maxDiameter
-
-        // Create planets
-        planets.forEach((planet, index) => {
-            const planetGraphics = new PIXI.Graphics()
-            const planetSize = planet.diameter * scaleFactor
-
-            // Draw each planet
-            planetGraphics.beginFill(0xffffff)
-            planetGraphics.drawCircle(0, 0, planetSize)
-            planetGraphics.endFill()
-
-            const angle = (index / planets.length) * (2 * Math.PI)
-            const orbitRadius = 1000
-            planetGraphics.x = orbitRadius * Math.cos(angle)
-            planetGraphics.y = orbitRadius * Math.sin(angle)
-
-            const distanceText = new PIXI.Text(`${planet.distance} km`, {
-                fill: 'white',
-                fontSize: 16,
-            })
-            distanceText.visible = false
-            distanceText.x = planetGraphics.x - 30
-            distanceText.y = planetGraphics.y - 80
-
-            planetGraphics.interactive = true
-            planetGraphics.buttonMode = true
-
-            planetGraphics.on('pointerover', () => {
-                distanceText.visible = true
-            })
-            planetGraphics.on('pointerout', () => {
-                distanceText.visible = false
-            })
-
-            planetGraphics.on('pointerdown', (event) => {
-                event.stopPropagation()
-                alert(
-                    `${planet.name}\nDistance: ${planet.distance} km\n${planet.description}`
-                )
-            })
-
-            container.addChild(planetGraphics)
-            container.addChild(distanceText)
-        })
-
-        // Add exoplanets container
-        const exoplanetContainer = new PIXI.Container()
-        container.addChild(exoplanetContainer)
-
+        // Function to fetch exoplanets based on the current viewable area
         const fetchVisibleExoplanets = () => {
             const x1 = -container.position.x / zoom
             const y1 = -container.position.y / zoom
             const x2 = (app.screen.width - container.position.x) / zoom
             const y2 = (app.screen.height - container.position.y) / zoom
-            fetchExoplanets(x1, y1, x2, y2)
+            // Add extra padding around the viewport
+            const padding = 100
+            // log with padding
+            console.log('fetching exoplanets', x1 - padding, y1 - padding, x2 + padding, y2 + padding)
+            fetchExoplanets(x1 - padding, y1 - padding, x2 + padding, y2 + padding)
         }
+
+        // Enable interactivity and panning
+        app.stage.interactive = true
+        app.stage.hitArea = app.screen
+        app.stage.cursor = 'grab'
 
         app.stage.on('pointerdown', (event) => {
             isDragging = true
@@ -190,13 +80,13 @@ export default function Home() {
         app.stage.on('pointerup', () => {
             isDragging = false
             app.stage.cursor = 'grab'
-            fetchVisibleExoplanets()
+            fetchVisibleExoplanets() // Fetch exoplanets for the new area after panning
         })
 
         app.stage.on('pointerupoutside', () => {
             isDragging = false
             app.stage.cursor = 'grab'
-            fetchVisibleExoplanets()
+            fetchVisibleExoplanets() // Fetch exoplanets for the new area after panning
         })
 
         app.stage.on('pointermove', (event) => {
@@ -207,52 +97,138 @@ export default function Home() {
             }
         })
 
-        app.view.addEventListener('wheel', (event) => {
-            const zoomAmount = event.deltaY > 0 ? 0.9 : 1.1
-            zoom *= zoomAmount
-            zoom = Math.min(Math.max(zoom, 0.3), 3)
-            container.scale.set(zoom, zoom)
-            fetchVisibleExoplanets()
-        })
-
+        // Zoom in and out
+        // app.view.addEventListener('wheel', (event) => {
+        //     // Get the position of the mouse relative to the container
+        //     const mouseX = event.clientX;
+        //     const mouseY = event.clientY;
+        
+        //     // Convert mouse coordinates to container coordinates
+        //     const containerMouseX = (mouseX - container.position.x) / container.scale.x;
+        //     const containerMouseY = (mouseY - container.position.y) / container.scale.y;
+        
+        //     // Determine zoom factor
+        //     const zoomAmount = event.deltaY > 0 ? 0.9 : 1.1;
+        //     zoom *= zoomAmount;
+        //     zoom = Math.min(Math.max(zoom, 0.5), 10); // Set a limit on zoom range
+        
+        //     // Scale the container
+        //     container.scale.set(zoom, zoom);
+        
+        //     // Adjust the container's position to zoom toward the cursor
+        //     container.position.x = mouseX - containerMouseX * container.scale.x;
+        //     container.position.y = mouseY - containerMouseY * container.scale.y;
+        
+        //     // Fetch exoplanets for the new zoom level
+        //     fetchVisibleExoplanets();
+        // });
+        
+        // Adjust canvas size on window resize
         window.addEventListener('resize', () => {
             app.renderer.resize(window.innerWidth, window.innerHeight)
             fetchVisibleExoplanets()
         })
 
+        // Initial fetch when the component mounts
+        fetchVisibleExoplanets()
+
         return () => {
             app.destroy(true, true)
             window.removeEventListener('resize', fetchVisibleExoplanets)
         }
-    }, [planets])
+    }, [])
+
+    // Function to calculate gradient color
+    // Function to calculate color using a modern palette (Viridis-like)
+    const calculateColor = (value, min, max) => {
+        const palette = ['#B3E5FC', '#81D4FA', '#4FC3F7', '#FFD180', '#FFAB91'] // Pale, modern colors
+        const ratio = (value - min) / (max - min) // Normalize value between 0 and 1
+        const index = Math.floor(ratio * (palette.length - 1)) // Choose color index based on ratio
+        return PIXI.utils.string2hex(palette[index]) // Convert the color string to hex for PIXI
+    }
+
 
     useEffect(() => {
         if (exoplanets.length === 0) return
 
-        const app = pixiContainer.current._pixiApp // Assuming PIXI.Application instance is stored in ref
-        const exoplanetContainer =
-            app.stage.getChildByName('exoplanetContainer')
-        if (!exoplanetContainer) return
+        const app = appRef.current
+        const container = app.stage.children[0] // Access the main container
 
-        exoplanetContainer.removeChildren()
+        // Remove previous exoplanets before rendering new ones
+        container.removeChildren()
 
+        // Find the smallest and largest exoplanet by radius
+        const minRadius = Math.min(...exoplanets.map((exo) => exo.pl_rade))
+        const maxRadius = Math.max(...exoplanets.map((exo) => exo.pl_rade))
+
+        // Variables for scaling exoplanet size (based on radius)
+        const basePlanetSize = 10
+
+        // Plot exoplanets based on their 2D coordinates and radius
         exoplanets.forEach((exo) => {
             const exoGraphics = new PIXI.Graphics()
-            const exoSize = exo.pl_rade * 2
-            exoGraphics.beginFill(0x00ff00)
+            const exoSize = exo.pl_rade * basePlanetSize
+
+            // Calculate the color based on radius (gradient from blue to red)
+            const color = calculateColor(exo.pl_rade, minRadius, maxRadius)
+
+            // Add shadow by drawing a slightly larger dark circle behind the exoplanet
+            const shadow = new PIXI.Graphics()
+            shadow.beginFill(0x000000, 0.5) // Semi-transparent black shadow
+            shadow.drawCircle(-3, -3, exoSize + 5) // Slightly larger than the planet
+            shadow.endFill()
+
+            // Offset the shadow slightly to simulate depth
+            shadow.x = exo.coordinates_2d_x * 10 + 3 // Offset by 3 pixels for a shadow effect
+            shadow.y = exo.coordinates_2d_y * 10 + 3
+
+            // Draw each exoplanet as a circle with a gradient color
+            exoGraphics.beginFill(color) // Fill with calculated color
             exoGraphics.drawCircle(0, 0, exoSize)
             exoGraphics.endFill()
-            exoGraphics.x = exo.coordinates_2d_x
-            exoGraphics.y = exo.coordinates_2d_y
 
-            exoplanetContainer.addChild(exoGraphics)
+            // Position the exoplanet based on 2D coordinates (Earth is at (0,0))
+            exoGraphics.x = exo.coordinates_2d_x * 10
+            exoGraphics.y = exo.coordinates_2d_y * 10
+
+            // Add hover info for exoplanets
+            const infoText = new PIXI.Text(`${exo.pl_name}\nDiameter: ${(exo.pl_rade * 6371) * 2} Km.`, {
+                fill: 'white',
+                fontSize: 14,
+            })
+            infoText.visible = false
+            infoText.x = exoGraphics.x - exoSize - 50
+            infoText.y = exoGraphics.y - exoSize - 50
+
+            exoGraphics.interactive = true
+            exoGraphics.buttonMode = true
+
+            exoGraphics.on('pointerover', () => {
+                infoText.visible = true
+                // border color #FF6A6A
+                exoGraphics.lineStyle(2, 0xFF6A6A)
+                exoGraphics.drawCircle(0, 0, exoSize)
+                exoGraphics.endFill()
+            })
+            exoGraphics.on('pointerout', () => {
+                infoText.visible = false
+                exoGraphics.lineStyle(2, 0x000000)
+                exoGraphics.drawCircle(0, 0, exoSize)
+                exoGraphics.endFill()
+
+            })
+
+            // Add shadow, exoplanet, and info text to container
+            container.addChild(shadow)      // Add the shadow first, so it's behind the planet
+            container.addChild(exoGraphics) // Add the exoplanet on top of the shadow
+            container.addChild(infoText)
         })
     }, [exoplanets])
 
     return (
         <div>
             <h1 style={{ textAlign: 'center', color: 'white' }}>
-                Interactive Planet Explorer
+                Interactive Exoplanet Explorer
             </h1>
             <div
                 ref={pixiContainer}
