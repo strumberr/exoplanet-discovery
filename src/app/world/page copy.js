@@ -13,14 +13,11 @@ export default function Home() {
     const [otherPlayers, setOtherPlayers] = useState([]) // State to store other players' coordinates
     const [userId, setUserId] = useState('') // State to store the user id
     const [cursorCoordinates, setCursorCoordinates] = useState({ x: 0, y: 0 }) // State to store the cursor coordinates
-    const [loading, setLoading] = useState(true)
-
-
+    const [previousCoordinates, setPreviousCoordinates] = useState({ x: 0, y: 0 }) // Store previous coordinates
     let cursorCoordinatesSecond = useRef({ x: 0, y: 0 })
 
     // Set the user id in localStorage and get the user id
     useEffect(() => {
-
         const randomUserId = Math.floor(Math.random() * 1000000) // Generate a random user id
         
         if (!localStorage.getItem('userId')) {
@@ -30,21 +27,44 @@ export default function Home() {
     }, [])
 
     // Fetch other players' coordinates from the API
-    const fetchPlayerCoordinates = async (x, y) => {
+    const fetchPlayerCoordinates = async () => {
         try {
-            const response = await fetch('/api/user-coordinates', {
+            const response = await fetch('/api/get-nearby-players', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ x, y, userId: localStorage.getItem('userId') }), // Send the current cursor coordinates
+                body: JSON.stringify({
+                    x: cursorCoordinatesSecond.current.x,
+                    y: cursorCoordinatesSecond.current.y,
+                    userId: localStorage.getItem('userId')
+                }),
             });
             const data = await response.json();
             setOtherPlayers(data); // Store the returned player data
         } catch (error) {
             console.error('Error fetching player coordinates:', error);
         }
-    }
+    };
+
+    // Push the player's coordinates to the server
+    const pushPlayerCoordinates = async (x, y) => {
+        try {
+            await fetch('/api/update-coordinates', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    x,
+                    y,
+                    userId: localStorage.getItem('userId')
+                }),
+            });
+        } catch (error) {
+            console.error('Error pushing player coordinates:', error);
+        }
+    };
 
     // Fetch exoplanets based on visible grid area (viewport)
     const fetchExoplanets = async (x1, y1, x2, y2) => {
@@ -67,7 +87,7 @@ export default function Home() {
             console.error('Error fetching exoplanets:', error);
             setExoplanets([]); // In case of error, set state to an empty array
         }
-    }
+    };
 
     useEffect(() => {
         // Initialize PixiJS app to fit the entire window
@@ -136,19 +156,19 @@ export default function Home() {
                 const newPosition = event.data.global;
                 container.position.x = newPosition.x - dragStartX;
                 container.position.y = newPosition.y - dragStartY;
-
-                // cursorCoordinatesSecond = {
-                //     x: (event.data.global.x - container.position.x) / zoom,
-                //     y: (event.data.global.y - container.position.y) / zoom,
-                // };
-
             }
 
-            cursorCoordinatesSecond.x = (event.data.global.x - container.position.x) / zoom
-            cursorCoordinatesSecond.y = (event.data.global.y - container.position.y) / zoom
-            
-            // console.log(cursorCoordinatesSecond.x, cursorCoordinatesSecond.y)
-            
+            cursorCoordinatesSecond.current.x = (event.data.global.x - container.position.x) / zoom;
+            cursorCoordinatesSecond.current.y = (event.data.global.y - container.position.y) / zoom;
+
+            // Only push updated coordinates if they've changed
+            if (
+                previousCoordinates.x !== cursorCoordinatesSecond.current.x ||
+                previousCoordinates.y !== cursorCoordinatesSecond.current.y
+            ) {
+                pushPlayerCoordinates(cursorCoordinatesSecond.current.x, cursorCoordinatesSecond.current.y);
+                setPreviousCoordinates({ x: cursorCoordinatesSecond.current.x, y: cursorCoordinatesSecond.current.y });
+            }
         });
 
         window.addEventListener('resize', () => {
@@ -163,27 +183,16 @@ export default function Home() {
             app.destroy(true, true);
             window.removeEventListener('resize', fetchVisibleExoplanetsAndPlayers);
         };
-    }, []);
+    }, [previousCoordinates]); // Only rerun if previousCoordinates changes
 
-
-
-
-
-
-
-    // Separate useEffect to update user coordinates every 200ms
+    // Separate useEffect to read other players' coordinates every 100ms
     useEffect(() => {
         const intervalId = setInterval(() => {
-
-            fetchPlayerCoordinates(cursorCoordinatesSecond.x, cursorCoordinatesSecond.y); // Send cursor coordinates to the API every 200ms
-        }, 100); // 200ms interval for updates
+            fetchPlayerCoordinates(); // Fetch other players' coordinates every 100ms
+        }, 100); // 100ms interval for updates
 
         return () => clearInterval(intervalId); // Clean up the interval on component unmount
-    }, [cursorCoordinatesSecond]); // Only run when cursorCoordinates change
-
-
-
-
+    }, []); // No dependency needed, runs continuously
 
     // Function to calculate gradient color
     const calculateColor = (value) => {
@@ -207,13 +216,11 @@ export default function Home() {
         }
         const index = Math.floor(ratio * (palette.length - 1));
         return PIXI.utils.string2hex(palette[index]);
-    }
+    };
 
     useEffect(() => {
         const app = appRef.current;
         const container = app.stage.children[0];
-
-        // console.log('Rendering exoplanets:');
 
         // Remove previous exoplanets and players before rendering new ones
         container.removeChildren();
@@ -226,15 +233,6 @@ export default function Home() {
         earthGraphics.endFill();
         container.addChild(earthGraphics);
 
-
-        if (otherPlayers.length === 0) {
-            // create a temporary player at (0,0) if no other players found
-            otherPlayers.push({
-                userId: '0',
-                coordinates: { x: 0, y: 0 }
-            });
-        }
-
         try {
             // Draw other players as red dots
             otherPlayers.forEach(player => {
@@ -243,18 +241,7 @@ export default function Home() {
                 playerGraphics.drawCircle(0, 0, 10); // Draw a red dot for the player
                 playerGraphics.endFill();
 
-                // draw a bigger circle aorund the player
-                playerGraphics.beginFill(0xFF0000, 0.3);
-                playerGraphics.drawCircle(0, 0, 50); // Draw a red dot for the player
-                playerGraphics.endFill();
-
-
-
-                // playerGraphics.lineStyle(2, 0xFF0000, 0.3);
-                // // The rectangle is 1000 wide and 800 height, so we shift by half the width and height to center it
-                // playerGraphics.drawRect(-550, -400, 1100, 800); // Center the rectangle around the player
-                // playerGraphics.endFill();
-                // add the player id right below the dot 
+                // Add player ID below the dot
                 const playerText = new PIXI.Text(player.userId, {
                     fill: 'white',
                     fontSize: 12,
@@ -263,9 +250,6 @@ export default function Home() {
                 playerText.y = 20;
                 playerGraphics.addChild(playerText);
 
-                
-
-                
                 // Position the player based on their grid coordinates (x, y)
                 playerGraphics.x = player.coordinates.x * 10; // Adjust scale as needed
                 playerGraphics.y = player.coordinates.y * 10; // Adjust scale as needed
@@ -294,103 +278,22 @@ export default function Home() {
         exoplanets.forEach((exo) => {
             const exoGraphics = new PIXI.Graphics();
             const exoSize = exo.pl_rade * basePlanetSize;
-        
+
             // Calculate the color based on radius
             const color = calculateColor(exo.pl_rade);
-        
+
             // Draw each exoplanet as a circle with a gradient color
             exoGraphics.beginFill(color);
             exoGraphics.drawCircle(0, 0, exoSize);
             exoGraphics.endFill();
-        
+
             // Position the exoplanet based on 2D coordinates
             exoGraphics.x = exo.coordinates_2d_x * 10;
             exoGraphics.y = exo.coordinates_2d_y * 10;
 
-
-            // Add shadow by drawing a slightly larger dark circle behind the exoplanet
-            const shadow = new PIXI.Graphics()
-            shadow.beginFill(color, 0.3)
-            shadow.drawCircle(-3, -3, exoSize + 5)
-            // blur the shadow
-
-
-            shadow.endFill()
-
-            // Offset the shadow slightly to simulate depth
-            shadow.x = exo.coordinates_2d_x * 10 + 3
-            shadow.y = exo.coordinates_2d_y * 10 + 3
-
-        
-            // Make the exoplanet interactive and show info box on hover
-            exoGraphics.interactive = true;
-            exoGraphics.buttonMode = true;
-        
-            exoGraphics.on('pointerover', (event) => {
-                const infoBox = infoBoxRef.current;
-                infoBox.style.display = 'block';
-                infoBox.innerHTML = `
-                    <div class='infoBoxItem'>
-                        <div class='fieldLabel'>Name:</div>
-                        <div class='fieldValue'>${exo.pl_name}</div>
-                    </div>
-                    <div class='infoBoxItem'>
-                        <div class='fieldLabel'>Diameter:</div>
-                        <div class='fieldValue'>${(exo.pl_rade * 6371 * 2).toFixed(2)} Km</div>
-                    </div>
-                    <div class='infoBoxItem'>
-                        <div class='fieldLabel'>Temperature:</div>
-                        <div class='fieldValue'>${(exo.temperature - 273.15).toFixed(2)} °C</div>
-                    </div>
-                    <div class='infoBoxItem'>
-                        <div class='fieldLabel'>Distance:</div>
-                        <div class='fieldValue'>${(exo.sy_dist * 3.26156).toFixed(2)} light years</div>
-                    </div>
-                `;
-            
-                // Add hover border animation
-                exoGraphics.lineStyle(2, 0xFF6A6A); // Red border on hover
-                exoGraphics.drawCircle(0, 0, exoSize);
-                exoGraphics.endFill();
-
-                // set cursor to pointer
-                exoGraphics.cursor = 'pointer';
-
-            });
-
-        
-            exoGraphics.on('pointermove', (event) => {
-                const infoBox = infoBoxRef.current;
-                infoBox.style.left = `${event.data.global.x + 10}px`;
-                infoBox.style.top = `${event.data.global.y + 10}px`;
-            });
-        
-            exoGraphics.on('pointerout', () => {
-                const infoBox = infoBoxRef.current;
-                infoBox.style.display = 'none';
-        
-                // Remove hover border animation
-                exoGraphics.clear(); // Clear the hover border
-                exoGraphics.beginFill(color); // Redraw the planet without border
-                exoGraphics.drawCircle(0, 0, exoSize);
-                exoGraphics.endFill();
-
-                // set cursor to default
-                exoGraphics.cursor = 'default';
-            });
-        
-            // Add the exoplanet to the container
-            container.addChild(shadow)
-
             container.addChild(exoGraphics);
-
         });
-        
     }, [exoplanets, otherPlayers]); // Re-render if either exoplanets or other players change
-
-
-
-
 
     return (
         <div>
@@ -406,7 +309,6 @@ export default function Home() {
             <div style={{ position: 'absolute', top: 20, right: 20 }}>
                 {/* <p>({cursorCoordinatesSecond.x.toFixed(2)}, {cursorCoordinatesSecond.y.toFixed(2)})</p> */}
             </div>
-            
         </div>
-    )
+    );
 }
