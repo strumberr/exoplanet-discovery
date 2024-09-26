@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 // Function to initialize Redis client
 async function getRedisClient() {
     const client = createClient({
-        url: 'redis://localhost:6379',
+        url: `redis://${process.env.URL}:6379`,
     });
 
     // Handle connection events
@@ -85,6 +85,7 @@ export async function POST(request) {
                 // Push the formatted exoplanet data into the result array
                 exoplanets.push({
                     id: id,
+                    planet_id: exoplanet.planet_id,
                     pl_name: exoplanet.pl_name,
                     hostname: exoplanet.hostname,
                     discoverymethod: exoplanet.discoverymethod,
@@ -98,6 +99,7 @@ export async function POST(request) {
                     coordinates_2d_x: x,
                     coordinates_2d_y: y,
                     temperature: parseFloat(exoplanet.temperature),
+                    owner: exoplanet.owner,
                 });
             }
         }

@@ -1,40 +1,38 @@
 import { createClient } from 'redis';
 import { NextResponse } from 'next/server';
 
-// Function to initialize Redis client
 async function getRedisClient() {
     const client = createClient({
-        url: 'redis://localhost:6379',
-    });
-
-    // Handle connection events
-    client.on('connect', () => {
-        // console.log('Redis connection successful');
+        url: `redis://${process.env.REDIS_URL}:6379`,
     });
 
     client.on('error', (err) => {
         console.error('Redis Client Error:', err);
     });
 
-    // Try to connect to Redis
-    try {
-        await client.connect();
-        // console.log('Connected to Redis');
-    } catch (error) {
-        console.error('Failed to connect to Redis:', error);
-        throw new Error('Redis connection failed');
-    }
-
+    await client.connect();
     return client;
 }
 
-// Calculate distance between two grid points (Pythagorean theorem)
+// Calculate composite score for ZSET
+const generateCompositeScore = (x, y, scaleFactor = 100000) => {
+    return (x * scaleFactor) + y;
+};
+
+// Decompose composite score back into X and Y
+const decomposeScore = (score, scaleFactor = 100000) => {
+    const x = Math.floor(score / scaleFactor);
+    const y = score % scaleFactor;
+    return { x, y };
+};
+
+// Calculate distance between two grid points
 const calculateDistance = (x1, y1, x2, y2) => {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-}
+};
 
 export async function POST(request) {
-    const client = await getRedisClient();  // Initialize Redis client
+    const client = await getRedisClient();
     try {
         const { x, y, userId } = await request.json();
 
@@ -43,47 +41,45 @@ export async function POST(request) {
         }
 
         const userIdString = userId.toString();
+        const USER_KEY = `user:${userIdString}`;
+        const score = generateCompositeScore(x, y);
 
-        const GEO_KEY = 'users:locations'; // Redis key for storing user coordinates
-        const USER_KEY = `user:${userIdString}`; // Redis key for the current user
+        // Insert user coordinates as a ZSET entry
+        await client.zAdd('users_coords', { score, value: USER_KEY });
 
-        // Store the user's coordinates using SET
-        await client.hSet(USER_KEY, {
-            x: x.toString(),
-            y: y.toString()
-        });
+        // Get nearby users
+        const searchRadius = 200;
+        const minScore = generateCompositeScore(x - searchRadius, y - searchRadius);
+        const maxScore = generateCompositeScore(x + searchRadius, y + searchRadius);
+        const nearbyUserKeys = await client.zRangeByScore('users_coords', minScore, maxScore);
 
-        // console.log(`Added user ${userId} with coordinates (${x}, ${y}) to Redis.`);
-
-        // Get all user locations stored in Redis
-        const userKeys = await client.keys('user:*');
         const nearbyUsers = [];
+        for (const key of nearbyUserKeys) {
+            if (key === USER_KEY) continue;
 
-        // Define the maximum distance for considering users "nearby" (e.g., 10 grid units)
-        const maxDistance = 200;
+            const userScore = await client.zScore('users_coords', key);
+            const { x: otherUserX, y: otherUserY } = decomposeScore(userScore);
 
-        // Loop through all users to calculate distance
-        for (const key of userKeys) {
-            if (key === USER_KEY) continue; // Skip the current user
-
-            const userCoords = await client.hGetAll(key);
-            const userX = parseFloat(userCoords.x);
-            const userY = parseFloat(userCoords.y);
-
-            const distance = calculateDistance(x, y, userX, userY);
-            if (distance <= maxDistance) {
+            const distance = calculateDistance(x, y, otherUserX, otherUserY);
+            if (distance <= searchRadius) {
                 nearbyUsers.push({
                     userId: key.replace('user:', ''),
-                    coordinates: { x: userX, y: userY },
+                    coordinates: { x: otherUserX, y: otherUserY },
                     distance: distance
                 });
             }
         }
 
-        // console.log(`Nearby users found: ${nearbyUsers.length}`);
+        // Fetch troop data for the current user
+        const TROOP_KEY = `troops:${userIdString}`;
+        const troopsRawData = await client.hGetAll(TROOP_KEY);
 
-        // Return the filtered nearby users
-        return NextResponse.json(nearbyUsers, { status: 200 });
+        const troops = Object.keys(troopsRawData)
+            .filter(key => key !== 'count')  // Exclude the troop count field
+            .map(key => JSON.parse(troopsRawData[key]));
+
+        // Send the nearby users and troops back as a JSON response
+        return NextResponse.json({ nearbyUsers, troops }, { status: 200 });
     } catch (error) {
         console.error('Error processing request:', error);
         return NextResponse.json(
