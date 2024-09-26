@@ -8,10 +8,31 @@ export default function LoginForm() {
     const router = useRouter()
 
     useEffect(() => {
-        const token = localStorage.getItem('token')
-        if (token) {
-            router.push('/world')
+        const verifyToken = async () => {
+            const token = localStorage.getItem('token')
+            if (token) {
+                const response = await fetch(
+                    'http://localhost:3000/api/auth/verifyToken',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`, // Send token for verification
+                        },
+                    }
+                )
+
+                if (response.ok) {
+                    // Token is valid, redirect to the protected route
+                    router.push('/world')
+                } else {
+                    // Invalid token, remove it from localStorage and do not redirect
+                    localStorage.removeItem('token')
+                }
+            }
         }
+
+        verifyToken()
     }, [router])
 
     const handleSubmit = async (e) => {
