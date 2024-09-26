@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server';
 // Function to initialize Redis client
 async function getRedisClient() {
     const client = createClient({
-        url: 'redis://localhost:6379',
-    });
+        url: 'redis://10.237.17.105:6379',
+    })
 
     client.on('error', (err) => {
         console.error('Redis Client Error:', err);
