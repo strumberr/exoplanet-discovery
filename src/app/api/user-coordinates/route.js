@@ -1,5 +1,5 @@
-import { createClient } from 'redis';
-import { NextResponse } from 'next/server';
+import { createClient } from 'redis'
+import { NextResponse } from 'next/server'
 
 async function getRedisClient() {
     const client = createClient({
@@ -7,8 +7,8 @@ async function getRedisClient() {
     });
 
     client.on('error', (err) => {
-        console.error('Redis Client Error:', err);
-    });
+        console.error('Redis Client Error:', err)
+    })
 
     await client.connect();
     return client;
@@ -34,10 +34,10 @@ const calculateDistance = (x1, y1, x2, y2) => {
 export async function POST(request) {
     const client = await getRedisClient();
     try {
-        const { x, y, userId } = await request.json();
+        const { x, y, userId } = await request.json()
 
         if (typeof x !== 'number' || typeof y !== 'number') {
-            throw new Error('Invalid coordinates: x and y must be numbers');
+            throw new Error('Invalid coordinates: x and y must be numbers')
         }
 
         const userIdString = userId.toString();
@@ -81,12 +81,12 @@ export async function POST(request) {
         // Send the nearby users and troops back as a JSON response
         return NextResponse.json({ nearbyUsers, troops }, { status: 200 });
     } catch (error) {
-        console.error('Error processing request:', error);
+        console.error('Error processing request:', error)
         return NextResponse.json(
             { error: 'Error processing request' },
             { status: 500 }
-        );
+        )
     } finally {
-        await client.quit();  // Always close the Redis client when done
+        await client.quit() // Always close the Redis client when done
     }
 }
